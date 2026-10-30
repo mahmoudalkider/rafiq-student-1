@@ -1,4 +1,7 @@
+
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'theme/app_theme.dart';
 import 'screens/home_screen.dart';
 import 'screens/courses_screen.dart';
@@ -6,8 +9,14 @@ import 'screens/favorites_screen.dart';
 import 'screens/progress_screen.dart';
 import 'screens/account_screen.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await Supabase.initialize(
+    url: 'https://fvkyprjvoxwsevaqaluw.supabase.co',
+    publishableKey: 'sb_publishable_zcdOiO6nTYX5zWpHlhvZuQ_GZ4pDSJR',
+  );
+
   runApp(const RafiqStudentApp());
 }
 
