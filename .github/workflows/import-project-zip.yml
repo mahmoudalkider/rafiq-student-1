@@ -1,0 +1,29 @@
+name: Import updated Rafiq Student project
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract uploaded project archive
+        run: |
+          set -e
+          unzip -q rafiq-student-updated.zip -d /tmp/rafiq
+          cp -a /tmp/rafiq/rafiq-student-1-main/. .
+          rm rafiq-student-updated.zip
+
+      - name: Commit imported project
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Update Rafiq Student project"
+          git push
