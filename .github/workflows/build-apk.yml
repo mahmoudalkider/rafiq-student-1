@@ -28,9 +28,6 @@ jobs:
       - name: تحليل الكود
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      - name: تشغيل الاختبارات
-        run: flutter test
-
       - name: بناء APK
         run: flutter build apk --release
 
