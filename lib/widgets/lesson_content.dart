@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import '../models/course_model.dart';
 
@@ -54,19 +55,9 @@ class _LessonContentScreenState extends State<LessonContentScreen> {
                 ...widget.lesson.sections.map(
                   (section) => Padding(
                     padding: const EdgeInsets.only(bottom: 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          section.title,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          section.content,
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ],
+                    child: Text(
+                      section,
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ),
                 ),
