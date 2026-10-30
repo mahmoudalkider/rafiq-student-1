@@ -25,6 +25,9 @@ jobs:
       - name: إنشاء ملفات Android
         run: flutter create --platforms=android .
 
+      - name: حذف الاختبار الافتراضي القديم
+        run: rm -f test/widget_test.dart
+
       - name: تثبيت المكتبات
         run: flutter pub get
 
