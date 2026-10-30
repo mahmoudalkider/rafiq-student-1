@@ -1,39 +1,42 @@
-name: Build Flutter APK
+
+name: بناء ملف APK
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
-  build-apk:
+  build:
+    name: بناء تطبيق رفيق الطالب
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: تحميل ملفات المشروع
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
 
-      - name: Setup Flutter
+      - name: تثبيت Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          cache: true
 
-      - name: Install dependencies
+      - name: تثبيت المكتبات
         run: flutter pub get
 
-      run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: تحليل الكود
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      - name: Test
+      - name: تشغيل الاختبارات
         run: flutter test
 
-      - name: Build APK
+      - name: بناء APK
         run: flutter build apk --release
 
-      - name: Upload APK
+      - name: حفظ ملف APK
         uses: actions/upload-artifact@v4
         with:
           name: rafiq-student-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
