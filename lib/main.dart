@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -11,16 +12,31 @@ import 'screens/account_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Supabase.initialize(
-    url: 'https://fvkyprjvoxwsevaqaluw.supabase.co',
-    publishableKey: 'sb_publishable_zcdOiO6nTY5XzWpHlhvZuQ_G4pDSJR',
-  );
+  bool supabaseReady = false;
 
-  runApp(const RafiqStudentApp());
+  try {
+    await Supabase.initialize(
+      url: 'https://fvkyprjvoxwsevaqaluw.supabase.co',
+      publishableKey: 'sb_publishable_zcdOiO6nTY5XzWpHlhvZuQ_G4pDSJR',
+    );
+
+    supabaseReady = true;
+  } catch (error) {
+    debugPrint('Supabase initialization failed: $error');
+  }
+
+  runApp(RafiqStudentApp(
+    supabaseReady: supabaseReady,
+  ));
 }
 
 class RafiqStudentApp extends StatelessWidget {
-  const RafiqStudentApp({Key? key}) : super(key: key);
+  final bool supabaseReady;
+
+  const RafiqStudentApp({
+    Key? key,
+    required this.supabaseReady,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -34,13 +50,20 @@ class RafiqStudentApp extends StatelessWidget {
           child: child ?? const SizedBox.shrink(),
         );
       },
-      home: const MainApp(),
+      home: MainApp(
+        supabaseReady: supabaseReady,
+      ),
     );
   }
 }
 
 class MainApp extends StatefulWidget {
-  const MainApp({Key? key}) : super(key: key);
+  final bool supabaseReady;
+
+  const MainApp({
+    Key? key,
+    required this.supabaseReady,
+  }) : super(key: key);
 
   @override
   State<MainApp> createState() => _MainAppState();
@@ -49,15 +72,17 @@ class MainApp extends StatefulWidget {
 class _MainAppState extends State<MainApp> {
   int _selectedIndex = 0;
 
-  final List<Widget> _screens = const [
-    HomeScreen(),
-    CoursesScreen(),
-    FavoritesScreen(),
-    ProgressScreen(),
-    AccountScreen(),
+  late final List<Widget> _screens = [
+    const HomeScreen(),
+    const CoursesScreen(),
+    const FavoritesScreen(),
+    const ProgressScreen(),
+    const AccountScreen(),
   ];
 
   void _changePage(int index) {
+    if (index < 0 || index >= _screens.length) return;
+
     setState(() {
       _selectedIndex = index;
     });
@@ -66,9 +91,34 @@ class _MainAppState extends State<MainApp> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: _screens,
+      body: Column(
+        children: [
+          if (!widget.supabaseReady)
+            Material(
+              color: Colors.orange.shade100,
+              child: const Padding(
+                padding: EdgeInsets.all(10),
+                child: Row(
+                  children: [
+                    Icon(Icons.wifi_off, color: Colors.deepOrange),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'تعذر الاتصال بالخادم. بعض الخدمات قد لا تعمل.',
+                        style: TextStyle(color: Colors.black87),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          Expanded(
+            child: IndexedStack(
+              index: _selectedIndex,
+              children: _screens,
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
