@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -12,14 +11,17 @@ class AccountScreen extends StatefulWidget {
 class _AccountScreenState extends State<AccountScreen> {
   final _supabase = Supabase.instance.client;
 
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+
   bool _loading = false;
-  bool _showLogin = false;
+  bool _obscurePassword = true;
+
   String _name = '';
   String _email = '';
   String _plan = 'مجاني';
 
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  bool get _isLoggedIn => _supabase.auth.currentUser != null;
 
   @override
   void initState() {
@@ -31,6 +33,8 @@ class _AccountScreenState extends State<AccountScreen> {
     final user = _supabase.auth.currentUser;
 
     if (user == null) {
+      if (!mounted) return;
+
       setState(() {
         _name = '';
         _email = '';
@@ -60,7 +64,8 @@ class _AccountScreenState extends State<AccountScreen> {
 
       setState(() {
         _email = user.email ?? '';
-        _name = 'طالب رفيق الطالب';
+        _name = user.userMetadata?['full_name'] ??
+            'طالب رفيق الطالب';
         _plan = 'مجاني';
       });
     }
@@ -71,11 +76,13 @@ class _AccountScreenState extends State<AccountScreen> {
     final password = _passwordController.text;
 
     if (email.isEmpty || password.isEmpty) {
-      _showMessage('أدخل البريد الإلكتروني وكلمة المرور');
+      _showMessage('يرجى إدخال البريد الإلكتروني وكلمة المرور');
       return;
     }
 
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+    });
 
     try {
       await _supabase.auth.signInWithPassword(
@@ -87,21 +94,27 @@ class _AccountScreenState extends State<AccountScreen> {
 
       if (!mounted) return;
 
-      setState(() => _showLogin = false);
       _emailController.clear();
       _passwordController.clear();
+
       _showMessage('تم تسجيل الدخول بنجاح');
     } on AuthException catch (error) {
       _showMessage(error.message);
     } catch (_) {
-      _showMessage('تعذر تسجيل الدخول. تحقق من الإنترنت.');
+      _showMessage('تعذر تسجيل الدخول. تحقق من اتصال الإنترنت.');
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
     }
   }
 
   Future<void> _logout() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+    });
 
     try {
       await _supabase.auth.signOut();
@@ -112,14 +125,17 @@ class _AccountScreenState extends State<AccountScreen> {
         _name = '';
         _email = '';
         _plan = 'مجاني';
-        _showLogin = false;
       });
 
-      _showMessage('تم تسجيل الخروج');
+      _showMessage('تم تسجيل الخروج بنجاح');
     } catch (_) {
-      _showMessage('تعذر تسجيل الخروج');
+      _showMessage('تعذر تسجيل الخروج. حاول مرة أخرى.');
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -127,7 +143,10 @@ class _AccountScreenState extends State<AccountScreen> {
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -140,17 +159,29 @@ class _AccountScreenState extends State<AccountScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final user = _supabase.auth.currentUser;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('حساب الطالب'),
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('حساب الطالب'),
+          centerTitle: true,
+          actions: [
+            if (_isLoggedIn)
+              IconButton(
+                onPressed: _loading ? null : _loadAccount,
+                icon: const Icon(Icons.refresh),
+                tooltip: 'تحديث الحساب',
+              ),
+          ],
+        ),
+        body: _loading
+            ? const Center(
+                child: CircularProgressIndicator(),
+              )
+            : _isLoggedIn
+                ? _buildAccount()
+                : _buildLogin(),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : user == null
-              ? _buildLogin()
-              : _buildAccount(),
     );
   }
 
@@ -160,39 +191,80 @@ class _AccountScreenState extends State<AccountScreen> {
         padding: const EdgeInsets.all(24),
         child: Column(
           children: [
-            const Icon(Icons.school, size: 70, color: Colors.green),
-            const SizedBox(height: 16),
+            const Icon(
+              Icons.school,
+              size: 85,
+              color: Colors.blue,
+            ),
+            const SizedBox(height: 18),
             const Text(
               'مرحباً بك في رفيق الطالب',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 23,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 10),
+            Text(
+              'سجل الدخول للوصول إلى حسابك ومتابعة اشتراكك.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 15,
+              ),
+            ),
+            const SizedBox(height: 30),
             TextField(
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
+              textDirection: TextDirection.ltr,
               decoration: const InputDecoration(
                 labelText: 'البريد الإلكتروني',
-                prefixIcon: Icon(Icons.email),
+                prefixIcon: Icon(Icons.email_outlined),
                 border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 16),
             TextField(
               controller: _passwordController,
-              obscureText: true,
-              decoration: const InputDecoration(
+              obscureText: _obscurePassword,
+              decoration: InputDecoration(
                 labelText: 'كلمة المرور',
-                prefixIcon: Icon(Icons.lock),
-                border: OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.lock_outline),
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  onPressed: () {
+                    setState(() {
+                      _obscurePassword = !_obscurePassword;
+                    });
+                  },
+                  icon: Icon(
+                    _obscurePassword
+                        ? Icons.visibility
+                        : Icons.visibility_off,
+                  ),
+                ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 22),
             SizedBox(
               width: double.infinity,
-              child: ElevatedButton(
+              height: 50,
+              child: ElevatedButton.icon(
                 onPressed: _loading ? null : _login,
-                child: const Text('تسجيل الدخول'),
+                icon: const Icon(Icons.login),
+                label: const Text(
+                  'تسجيل الدخول',
+                  style: TextStyle(fontSize: 16),
+                ),
               ),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'إذا لم يكن لديك حساب، ستحتاج إلى إنشاء حساب من خلال نظام التسجيل المعتمد في التطبيق.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13),
             ),
           ],
         ),
@@ -201,50 +273,111 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   Widget _buildAccount() {
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        const CircleAvatar(
-          radius: 40,
-          child: Icon(Icons.person, size: 45),
-        ),
-        const SizedBox(height: 16),
-        Center(
-          child: Text(
-            _name,
-            style: const TextStyle(
-              fontSize: 22,
+    return RefreshIndicator(
+      onRefresh: _loadAccount,
+      child: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          const SizedBox(height: 15),
+          const Center(
+            child: CircleAvatar(
+              radius: 48,
+              child: Icon(
+                Icons.person,
+                size: 55,
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Center(
+            child: Text(
+              _name,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 23,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              _email,
+              textDirection: TextDirection.ltr,
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+              ),
+            ),
+          ),
+          const SizedBox(height: 30),
+          const Text(
+            'معلومات الحساب',
+            style: TextStyle(
+              fontSize: 19,
               fontWeight: FontWeight.bold,
             ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Center(child: Text(_email)),
-        const SizedBox(height: 24),
-        Card(
-          child: ListTile(
-            leading: const Icon(Icons.person),
-            title: const Text('بيانات الطالب'),
-            subtitle: Text(_name),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.person_outline),
+              title: const Text('اسم الطالب'),
+              subtitle: Text(_name),
+            ),
           ),
-        ),
-        Card(
-          child: ListTile(
-            leading: const Icon(Icons.workspace_premium),
-            title: const Text('الاشتراك الحالي'),
-            subtitle: Text(_plan),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.email_outlined),
+              title: const Text('البريد الإلكتروني'),
+              subtitle: Text(
+                _email,
+                textDirection: TextDirection.ltr,
+              ),
+            ),
           ),
-        ),
-        const SizedBox(height: 20),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: _loading ? null : _logout,
-            icon: const Icon(Icons.logout),
-            label: const Text('تسجيل الخروج'),
+          const SizedBox(height: 20),
+          const Text(
+            'الاشتراك',
+            style: TextStyle(
+              fontSize: 19,
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ),
-      ],
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              leading: const Icon(
+                Icons.workspace_premium,
+                color: Colors.orange,
+              ),
+              title: const Text('الاشتراك الحالي'),
+              subtitle: Text(_plan),
+              trailing: const Icon(Icons.verified_user_outlined),
+            ),
+          ),
+          const SizedBox(height: 25),
+          SizedBox(
+            height: 50,
+            child: OutlinedButton.icon(
+              onPressed: _loading ? null : _logout,
+              icon: const Icon(Icons.logout),
+              label: const Text('تسجيل الخروج'),
+            ),
+          ),
+          const SizedBox(height: 25),
+          Center(
+            child: Text(
+              'رفيق الطالب - طريقك نحو التعلم والنجاح',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
