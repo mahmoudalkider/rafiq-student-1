@@ -22,13 +22,14 @@ class _HomeScreenState extends State<HomeScreen> {
   late List<Course> _displayedCourses;
 
   String _selectedCategory = 'الكل';
+  bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
 
     _allCourses = CoursesData.allCourses;
-    _displayedCourses = _allCourses;
+    _displayedCourses = List.from(_allCourses);
 
     _loadFavoritesAndProgress();
   }
@@ -39,10 +40,14 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  // تحميل المفضلة ونسبة التقدم
   Future<void> _loadFavoritesAndProgress() async {
+    if (_isLoading) return;
+
+    _isLoading = true;
+
     try {
-      final favorites = await LocalStorageService.getFavorites();
+      final favorites =
+          await LocalStorageService.getFavorites();
 
       for (final course in _allCourses) {
         course.isFavorite = favorites.contains(course.id);
@@ -52,19 +57,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
         if (progress != null) {
           course.progressPercentage =
-              (progress['progressPercentage'] as num).toDouble();
+              (progress['progressPercentage'] as num)
+                  .toDouble();
         }
       }
+
+      _filterCourses(_searchController.text);
 
       if (mounted) {
         setState(() {});
       }
     } catch (e) {
       debugPrint('خطأ في تحميل بيانات الطالب: $e');
+    } finally {
+      _isLoading = false;
     }
   }
 
-  // تصنيفات الدورات
   List<String> get _categories {
     final categories = _allCourses
         .map((course) => course.category)
@@ -76,25 +85,28 @@ class _HomeScreenState extends State<HomeScreen> {
     return ['الكل', ...categories];
   }
 
-  // البحث والتصفية
-  void _handleSearch(String query) {
+  void _filterCourses(String query) {
     final searchText = query.trim().toLowerCase();
 
+    final results = _allCourses.where((course) {
+      final matchesSearch =
+          course.title.toLowerCase().contains(searchText) ||
+          course.description.toLowerCase().contains(searchText) ||
+          course.category.toLowerCase().contains(searchText);
+
+      final matchesCategory =
+          _selectedCategory == 'الكل' ||
+          course.category == _selectedCategory;
+
+      return matchesSearch &&
+          matchesCategory &&
+          course.isPublished;
+    }).toList();
+
+    if (!mounted) return;
+
     setState(() {
-      _displayedCourses = _allCourses.where((course) {
-        final matchesSearch =
-            course.title.toLowerCase().contains(searchText) ||
-            course.description.toLowerCase().contains(searchText) ||
-            course.category.toLowerCase().contains(searchText);
-
-        final matchesCategory =
-            _selectedCategory == 'الكل' ||
-            course.category == _selectedCategory;
-
-        return matchesSearch &&
-            matchesCategory &&
-            course.isPublished;
-      }).toList();
+      _displayedCourses = results;
     });
   }
 
@@ -103,13 +115,14 @@ class _HomeScreenState extends State<HomeScreen> {
       _selectedCategory = category;
     });
 
-    _handleSearch(_searchController.text);
+    _filterCourses(_searchController.text);
   }
 
-  // إضافة دورة إلى المفضلة أو إزالتها
   Future<void> _toggleFavorite(Course course) async {
+    final oldValue = course.isFavorite;
+
     setState(() {
-      course.isFavorite = !course.isFavorite;
+      course.isFavorite = !oldValue;
     });
 
     try {
@@ -119,16 +132,26 @@ class _HomeScreenState extends State<HomeScreen> {
         await LocalStorageService.removeFavorite(course.id);
       }
     } catch (e) {
-      debugPrint('خطأ في حفظ المفضلة: $e');
+      if (!mounted) return;
+
+      setState(() {
+        course.isFavorite = oldValue;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تعذر حفظ المفضلة'),
+        ),
+      );
     }
   }
 
-  // فتح تفاصيل الدورة
   void _openCourse(Course course) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => CourseDetailsScreen(course: course),
+        builder: (context) =>
+            CourseDetailsScreen(course: course),
       ),
     ).then((_) {
       if (mounted) {
@@ -137,20 +160,15 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // رسالة للميزات التي لم يتم ربطها بعد
-  void _showComingSoon(String feature) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$feature: هذه الميزة قيد التجهيز'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final publishedCourses =
-        _allCourses.where((course) => course.isPublished).length;
+    final publishedCourses = _allCourses
+        .where((course) => course.isPublished)
+        .length;
+
+    final favoritesCount = _allCourses
+        .where((course) => course.isFavorite)
+        .length;
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -158,9 +176,18 @@ class _HomeScreenState extends State<HomeScreen> {
         appBar: AppBar(
           title: const Text(
             'رفيق الطالب',
-            style: TextStyle(fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+            ),
           ),
           centerTitle: true,
+          actions: [
+            IconButton(
+              tooltip: 'تحديث',
+              icon: const Icon(Icons.refresh),
+              onPressed: _loadFavoritesAndProgress,
+            ),
+          ],
         ),
         body: RefreshIndicator(
           onRefresh: _loadFavoritesAndProgress,
@@ -170,17 +197,14 @@ class _HomeScreenState extends State<HomeScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildWelcomeSection(),
-
                 _buildSearchSection(),
-
-                _buildStatistics(publishedCourses),
-
+                _buildStatistics(
+                  publishedCourses,
+                  favoritesCount,
+                ),
                 _buildCategoriesSection(),
-
                 _buildCoursesSection(),
-
-                _buildToolsSection(),
-
+                _buildLearningSection(),
                 const SizedBox(height: 30),
               ],
             ),
@@ -190,17 +214,17 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // قسم الترحيب
   Widget _buildWelcomeSection() {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(22),
         gradient: const LinearGradient(
           colors: [
-            Color(0xFF1565C0),
+            Color(0xFF123B70),
+            Color(0xFF1976D2),
             Color(0xFF42A5F5),
           ],
           begin: Alignment.topRight,
@@ -214,69 +238,75 @@ class _HomeScreenState extends State<HomeScreen> {
             'مرحباً بك في رفيق الطالب 👋',
             style: TextStyle(
               color: Colors.white,
-              fontSize: 21,
+              fontSize: 22,
               fontWeight: FontWeight.bold,
             ),
           ),
           SizedBox(height: 12),
           Text(
-            'تعلم البرمجة والحاسوب والشبكات والأمن السيبراني والكهرباء، وابدأ رحلتك التعليمية من هنا.',
+            'منصتك التعليمية لتعلم الحاسوب والبرمجة والشبكات والأمن السيبراني والكهرباء.',
             style: TextStyle(
               color: Colors.white,
               fontSize: 15,
               height: 1.8,
             ),
           ),
+          SizedBox(height: 15),
+          Text(
+            'ابدأ التعلم اليوم وطور مهاراتك خطوة بخطوة.',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  // قسم البحث
   Widget _buildSearchSection() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: CustomSearchBar(
         controller: _searchController,
-        onChanged: _handleSearch,
+        onChanged: _filterCourses,
         onClear: () {
           _searchController.clear();
-          _handleSearch('');
+          _filterCourses('');
         },
       ),
     );
   }
 
-  // الإحصائيات
-  Widget _buildStatistics(int courseCount) {
-    final favoritesCount =
-        _allCourses.where((course) => course.isFavorite).length;
-
+  Widget _buildStatistics(
+    int courseCount,
+    int favoritesCount,
+  ) {
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Row(
         children: [
           Expanded(
             child: _buildStatCard(
-              icon: Icons.menu_book,
-              title: 'الدورات',
-              value: '$courseCount',
+              Icons.menu_book,
+              'الدورات',
+              '$courseCount',
             ),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: _buildStatCard(
-              icon: Icons.favorite,
-              title: 'المفضلة',
-              value: '$favoritesCount',
+              Icons.favorite,
+              'المفضلة',
+              '$favoritesCount',
             ),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: _buildStatCard(
-              icon: Icons.school,
-              title: 'التعلم',
-              value: 'ابدأ الآن',
+              Icons.school,
+              'التعلم',
+              'مستمر',
             ),
           ),
         ],
@@ -284,29 +314,32 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildStatCard({
-    required IconData icon,
-    required String title,
-    required String value,
-  }) {
+  Widget _buildStatCard(
+    IconData icon,
+    String title,
+    String value,
+  ) {
     return Card(
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.symmetric(
-          vertical: 15,
+          vertical: 16,
           horizontal: 5,
         ),
         child: Column(
           children: [
-            Icon(icon, color: Colors.blue, size: 26),
+            Icon(
+              icon,
+              color: const Color(0xFF1976D2),
+              size: 27,
+            ),
             const SizedBox(height: 8),
             Text(
               value,
               style: const TextStyle(
                 fontWeight: FontWeight.bold,
-                fontSize: 15,
+                fontSize: 16,
               ),
-              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 4),
             Text(
@@ -319,7 +352,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // تصنيفات المواد
   Widget _buildCategoriesSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -339,10 +371,14 @@ class _HomeScreenState extends State<HomeScreen> {
           height: 48,
           child: ListView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12,
+            ),
             children: _categories.map((category) {
               return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 4,
+                ),
                 child: ChoiceChip(
                   label: Text(category),
                   selected: _selectedCategory == category,
@@ -358,7 +394,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // الدورات التعليمية
   Widget _buildCoursesSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -377,14 +412,19 @@ class _HomeScreenState extends State<HomeScreen> {
           const Padding(
             padding: EdgeInsets.all(30),
             child: Center(
-              child: Text('لا توجد دورات مطابقة للبحث.'),
+              child: Text(
+                'لا توجد دورات مطابقة للبحث.',
+              ),
             ),
           )
         else
           GridView.builder(
             shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 8),
+            physics:
+                const NeverScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 8,
+            ),
             gridDelegate:
                 const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 2,
@@ -399,7 +439,8 @@ class _HomeScreenState extends State<HomeScreen> {
               return CourseCard(
                 course: course,
                 onTap: () => _openCourse(course),
-                onFavoriteTap: () => _toggleFavorite(course),
+                onFavoriteTap: () =>
+                    _toggleFavorite(course),
               );
             },
           ),
@@ -407,87 +448,47 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // أدوات الطالب
-  Widget _buildToolsSection() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
+  Widget _buildLearningSection() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Theme.of(context)
+            .colorScheme
+            .surfaceContainerHighest
+            .withOpacity(0.5),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'أدوات تساعدك على التعلم',
+          Row(
+            children: [
+              Icon(
+                Icons.lightbulb_outline,
+                color: Color(0xFF1976D2),
+              ),
+              SizedBox(width: 8),
+              Text(
+                'نصيحة تعليمية',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 10),
+          Text(
+            'خصص وقتاً يومياً للتعلم والتطبيق العملي. '
+            'لا تكتفِ بقراءة الدروس، بل جرّب كتابة الأكواد '
+            'وتنفيذ التمارين بنفسك.',
             style: TextStyle(
-              fontSize: 19,
-              fontWeight: FontWeight.bold,
+              height: 1.8,
+              fontSize: 14,
             ),
           ),
-          const SizedBox(height: 14),
-
-          _buildToolCard(
-            icon: Icons.smart_toy,
-            title: 'اسأل رفيق الطالب',
-            description: 'احصل على المساعدة في فهم دروسك.',
-            color: Colors.blue,
-            onTap: () {
-              _showComingSoon('المساعد الذكي');
-            },
-          ),
-
-          const SizedBox(height: 12),
-
-          _buildToolCard(
-            icon: Icons.summarize,
-            title: 'تلخيص درس',
-            description: 'جهز درسك للتلخيص والمراجعة.',
-            color: Colors.deepPurple,
-            onTap: () {
-              _showComingSoon('تلخيص الدروس');
-            },
-          ),
-
-          const SizedBox(height: 12),
-
-          _buildToolCard(
-            icon: Icons.quiz,
-            title: 'إنشاء اختبار',
-            description: 'اختبر معلوماتك واستعد للامتحانات.',
-            color: Colors.orange,
-            onTap: () {
-              _showComingSoon('إنشاء الاختبارات');
-            },
-          ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildToolCard({
-    required IconData icon,
-    required String title,
-    required String description,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return Card(
-      child: ListTile(
-        contentPadding: const EdgeInsets.all(12),
-        leading: CircleAvatar(
-          radius: 25,
-          backgroundColor: color.withOpacity(0.12),
-          child: Icon(icon, color: color),
-        ),
-        title: Text(
-          title,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 5),
-          child: Text(description),
-        ),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 17),
-        onTap: onTap,
       ),
     );
   }
