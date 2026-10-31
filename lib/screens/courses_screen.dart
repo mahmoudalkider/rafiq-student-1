@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/course_model.dart';
 import '../data/courses_data.dart';
 import '../widgets/course_card.dart';
+import '../services/local_storage_service.dart';
 
 class CoursesScreen extends StatefulWidget {
   const CoursesScreen({Key? key}) : super(key: key);
@@ -21,6 +22,19 @@ class _CoursesScreenState extends State<CoursesScreen> {
   void initState() {
     super.initState();
     _courses = CoursesData.allCourses;
+    _loadFavorites();
+  }
+
+  Future<void> _loadFavorites() async {
+    final favorites = await LocalStorageService.getFavorites();
+
+    if (!mounted) return;
+
+    setState(() {
+      for (final course in _courses) {
+        course.isFavorite = favorites.contains(course.id);
+      }
+    });
   }
 
   List<String> get _categories {
@@ -46,6 +60,32 @@ class _CoursesScreenState extends State<CoursesScreen> {
 
       return matchesSearch && matchesCategory && course.isPublished;
     }).toList();
+  }
+
+  Future<void> _toggleFavorite(Course course) async {
+    final oldValue = course.isFavorite;
+
+    setState(() {
+      course.isFavorite = !oldValue;
+    });
+
+    try {
+      if (course.isFavorite) {
+        await LocalStorageService.addFavorite(course.id);
+      } else {
+        await LocalStorageService.removeFavorite(course.id);
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        course.isFavorite = oldValue;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذر حفظ المفضلة')),
+      );
+    }
   }
 
   void _openCourse(Course course) {
@@ -133,11 +173,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
                         return CourseCard(
                           course: course,
                           onTap: () => _openCourse(course),
-                          onFavoriteTap: () {
-                            setState(() {
-                              course.isFavorite = !course.isFavorite;
-                            });
-                          },
+                          onFavoriteTap: () => _toggleFavorite(course),
                         );
                       },
                     ),
@@ -149,7 +185,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
   }
 }
 
-class CourseDetailsScreen extends StatelessWidget {
+class CourseDetailsScreen extends StatefulWidget {
   final Course course;
 
   const CourseDetailsScreen({
@@ -158,7 +194,15 @@ class CourseDetailsScreen extends StatelessWidget {
   }) : super(key: key);
 
   @override
+  State<CourseDetailsScreen> createState() =>
+      _CourseDetailsScreenState();
+}
+
+class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
+  @override
   Widget build(BuildContext context) {
+    final course = widget.course;
+
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
@@ -234,14 +278,18 @@ class CourseDetailsScreen extends StatelessWidget {
                     color: lesson.isCompleted ? Colors.green : null,
                     size: 20,
                   ),
-                  onTap: () {
-                    Navigator.push(
+                  onTap: () async {
+                    await Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) =>
-                            LessonDetailsScreen(lesson: lesson),
+                        builder: (context) => LessonDetailsScreen(
+                          lesson: lesson,
+                          course: course,
+                        ),
                       ),
                     );
+
+                    if (mounted) setState(() {});
                   },
                 ),
               );
@@ -253,16 +301,81 @@ class CourseDetailsScreen extends StatelessWidget {
   }
 }
 
-class LessonDetailsScreen extends StatelessWidget {
+class LessonDetailsScreen extends StatefulWidget {
   final Lesson lesson;
+  final Course course;
 
   const LessonDetailsScreen({
     Key? key,
     required this.lesson,
+    required this.course,
   }) : super(key: key);
 
   @override
+  State<LessonDetailsScreen> createState() =>
+      _LessonDetailsScreenState();
+}
+
+class _LessonDetailsScreenState extends State<LessonDetailsScreen> {
+  bool _isSaving = false;
+
+  Future<void> _completeLesson() async {
+    if (_isSaving || widget.lesson.isCompleted) {
+      Navigator.pop(context);
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+    });
+
+    try {
+      await LocalStorageService.markLessonCompleted(
+        widget.lesson.id,
+        widget.course.id,
+      );
+
+      final completedIds =
+          await LocalStorageService.getCompletedLessons(
+        widget.course.id,
+      );
+
+      await LocalStorageService.saveProgress(
+        widget.course.id,
+        completedIds.toSet().length,
+        widget.course.lessons.length,
+      );
+
+      widget.lesson.isCompleted = true;
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم حفظ إكمال الدرس بنجاح'),
+        ),
+      );
+
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _isSaving = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('حدث خطأ أثناء حفظ تقدمك. حاول مرة أخرى.'),
+        ),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final lesson = widget.lesson;
+
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
@@ -378,14 +491,32 @@ class LessonDetailsScreen extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () {
-                lesson.isCompleted = true;
-                Navigator.pop(context);
-              },
-              icon: const Icon(Icons.check),
-              label: const Text('إكمال الدرس'),
-            ),
+            if (lesson.isCompleted)
+              const Card(
+                child: ListTile(
+                  leading: Icon(
+                    Icons.check_circle,
+                    color: Colors.green,
+                  ),
+                  title: Text('لقد أكملت هذا الدرس سابقاً'),
+                ),
+              )
+            else
+              ElevatedButton.icon(
+                onPressed: _isSaving ? null : _completeLesson,
+                icon: _isSaving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : const Icon(Icons.check),
+                label: Text(
+                  _isSaving ? 'جارٍ الحفظ...' : 'إكمال الدرس',
+                ),
+              ),
           ],
         ),
       ),
