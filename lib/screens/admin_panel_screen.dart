@@ -14,6 +14,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   bool _isOwner = false;
   bool _grantsLoading = false;
   bool _granting = false;
+
   String _message = '';
 
   List<Map<String, dynamic>> _grants = [];
@@ -34,14 +35,22 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   }
 
   Future<void> _checkOwner() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+      });
+    }
+
     try {
       final client = Supabase.instance.client;
       final user = client.auth.currentUser;
 
       if (user == null) {
         if (!mounted) return;
+
         setState(() {
           _message = 'يجب تسجيل الدخول أولاً';
+          _isOwner = false;
           _loading = false;
         });
         return;
@@ -73,8 +82,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       if (!mounted) return;
 
       setState(() {
-        _message =
-            'تعذر التحقق من الصلاحيات. تحقق من اتصالك بالإنترنت.';
+        _isOwner = false;
+        _message = 'تعذر التحقق من الصلاحيات. تحقق من الاتصال.';
         _loading = false;
       });
     }
@@ -108,17 +117,20 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         _grantsLoading = false;
       });
 
-      _showMessage('تعذر تحميل المنح: $error');
+      _showMessage('تعذر تحميل سجل المنح. تحقق من صلاحيات قاعدة البيانات.');
     }
   }
 
   Future<void> _grantVip() async {
     final email = _emailController.text.trim().toLowerCase();
 
-    if (email.isEmpty || !email.contains('@')) {
+    if (email.isEmpty ||
+        !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
       _showMessage('يرجى إدخال بريد إلكتروني صحيح');
       return;
     }
+
+    if (_granting) return;
 
     setState(() {
       _granting = true;
@@ -134,12 +146,17 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
       _emailController.clear();
 
-      _showMessage(result.toString());
+      _showMessage(
+        result == null || result.toString().isEmpty
+            ? 'تم إرسال طلب منح الاشتراك'
+            : result.toString(),
+      );
 
       await _loadGrants();
     } catch (error) {
       if (!mounted) return;
-      _showMessage('تعذر منح الاشتراك: $error');
+
+      _showMessage('تعذر منح الاشتراك. تحقق من البريد والصلاحيات.');
     } finally {
       if (mounted) {
         setState(() {
@@ -152,24 +169,33 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   Future<void> _revokeGrant(
     Map<String, dynamic> grant,
   ) async {
+    final email = grant['student_email']?.toString() ?? '';
+
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('إلغاء منحة VIP'),
-        content: Text(
-          'هل تريد إلغاء المنحة الدائمة للطالب:\n${grant['student_email']}؟',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('تراجع'),
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('إلغاء منحة VIP'),
+          content: Text(
+            'هل تريد إلغاء المنحة الدائمة للطالب:\n$email؟',
+            textDirection: TextDirection.ltr,
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('إلغاء المنحة'),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, false);
+              },
+              child: const Text('تراجع'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, true);
+              },
+              child: const Text('إلغاء المنحة'),
+            ),
+          ],
+        );
+      },
     );
 
     if (confirm != true) return;
@@ -179,17 +205,19 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           .from('permanent_student_grants')
           .update({
             'is_active': false,
-            'revoked_at': DateTime.now().toUtc().toIso8601String(),
+            'revoked_at':
+                DateTime.now().toUtc().toIso8601String(),
           })
           .eq('id', grant['id']);
 
       if (!mounted) return;
 
-      _showMessage('تم إلغاء المنحة');
+      _showMessage('تم تحديث حالة المنحة');
       await _loadGrants();
     } catch (error) {
       if (!mounted) return;
-      _showMessage('تعذر إلغاء المنحة: $error');
+
+      _showMessage('تعذر إلغاء المنحة. تحقق من صلاحيات قاعدة البيانات.');
     }
   }
 
@@ -197,7 +225,10 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -216,8 +247,11 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   ) {
     return Card(
       child: ListTile(
-        leading: Icon(icon, color: Colors.green),
-        title: Text(title),
+        leading: Icon(icon, color: Colors.blue),
+        title: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
         subtitle: Text(description),
         trailing: const Icon(
           Icons.arrow_forward_ios,
@@ -256,7 +290,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'امنح طالباً تختاره اشتراك VIP مجانياً ودائماً باستخدام بريده المسجل في التطبيق.',
+              'امنح طالباً تختاره اشتراك VIP مجانياً ودائماً باستخدام بريده الإلكتروني المسجل في التطبيق.',
+              style: TextStyle(height: 1.6),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -266,8 +301,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               decoration: const InputDecoration(
                 labelText: 'البريد الإلكتروني للطالب',
                 hintText: 'student@example.com',
-                border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.email),
+                border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 12),
@@ -282,7 +317,11 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                       ),
                     )
                   : const Icon(Icons.card_giftcard),
-              label: const Text('منح VIP الدائم'),
+              label: Text(
+                _granting
+                    ? 'جارٍ تنفيذ الطلب...'
+                    : 'منح VIP الدائم',
+              ),
             ),
             const Divider(height: 30),
             Row(
@@ -303,9 +342,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               ],
             ),
             if (_grantsLoading)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(
                   child: CircularProgressIndicator(),
                 ),
               )
@@ -323,8 +362,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
                 return Card(
                   color: active
-                      ? Colors.green.withValues(alpha: 0.08)
-                      : Colors.grey.withValues(alpha: 0.08),
+                      ? Colors.green.withOpacity(0.08)
+                      : Colors.grey.withOpacity(0.08),
                   child: ListTile(
                     leading: Icon(
                       active
@@ -337,7 +376,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                       textDirection: TextDirection.ltr,
                     ),
                     subtitle: Text(
-                      active ? 'VIP دائم - نشط' : 'تم إلغاء المنحة',
+                      active
+                          ? 'VIP دائم - نشط'
+                          : 'تم إلغاء المنحة',
                     ),
                     trailing: active
                         ? IconButton(
@@ -360,92 +401,94 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('لوحة إدارة رفيق الطالب'),
-        actions: [
-          if (_isOwner)
-            IconButton(
-              onPressed: _logout,
-              icon: const Icon(Icons.logout),
-              tooltip: 'تسجيل الخروج',
-            ),
-        ],
-      ),
-      body: _loading
-          ? const Center(
-              child: CircularProgressIndicator(),
-            )
-          : !_isOwner
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.lock,
-                          size: 60,
-                          color: Colors.red,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          _message,
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: _checkOwner,
-                          child: const Text('إعادة المحاولة'),
-                        ),
-                      ],
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('لوحة إدارة رفيق الطالب'),
+          actions: [
+            if (_isOwner)
+              IconButton(
+                onPressed: _logout,
+                icon: const Icon(Icons.logout),
+                tooltip: 'تسجيل الخروج',
+              ),
+          ],
+        ),
+        body: _loading
+            ? const Center(
+                child: CircularProgressIndicator(),
+              )
+            : !_isOwner
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.lock,
+                            size: 60,
+                            color: Colors.red,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            _message,
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: _checkOwner,
+                            child: const Text('إعادة المحاولة'),
+                          ),
+                        ],
+                      ),
                     ),
+                  )
+                : ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      Text(
+                        _message,
+                        style: Theme.of(context).textTheme.titleLarge,
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 20),
+                      _permanentVipSection(),
+                      _adminItem(
+                        Icons.menu_book,
+                        'إدارة المواد والدروس',
+                        'إضافة وتعديل وحذف المحتوى التعليمي',
+                      ),
+                      _adminItem(
+                        Icons.description,
+                        'إدارة الملخصات',
+                        'إدارة الملخصات التعليمية الجاهزة',
+                      ),
+                      _adminItem(
+                        Icons.workspace_premium,
+                        'إدارة الاشتراكات',
+                        'إدارة الباقات والأسعار',
+                      ),
+                      _adminItem(
+                        Icons.people,
+                        'إدارة الطلاب',
+                        'متابعة حسابات الطلاب واشتراكاتهم',
+                      ),
+                      _adminItem(
+                        Icons.payments,
+                        'طلبات بنكك',
+                        'مراجعة طلبات الدفع والتحويلات',
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'بعض أقسام الإدارة ما زالت واجهات أولية، وسيتم ربطها بقاعدة البيانات في الخطوات القادمة.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(height: 1.6),
+                      ),
+                    ],
                   ),
-                )
-              : ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    Text(
-                      _message,
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleLarge,
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 20),
-                    _permanentVipSection(),
-                    _adminItem(
-                      Icons.menu_book,
-                      'إدارة المواد والدروس',
-                      'إضافة وتعديل وحذف المحتوى التعليمي',
-                    ),
-                    _adminItem(
-                      Icons.description,
-                      'إدارة الملخصات',
-                      'إدارة الملخصات التعليمية الجاهزة',
-                    ),
-                    _adminItem(
-                      Icons.workspace_premium,
-                      'إدارة الاشتراكات',
-                      'إدارة الباقات والأسعار',
-                    ),
-                    _adminItem(
-                      Icons.people,
-                      'إدارة الطلاب',
-                      'متابعة حسابات الطلاب واشتراكاتهم',
-                    ),
-                    _adminItem(
-                      Icons.payments,
-                      'طلبات بنكك',
-                      'مراجعة طلبات الدفع والتحويلات',
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'هذه واجهة أولية. سنربط أقسام الإدارة بقاعدة البيانات في الخطوات القادمة.',
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
+      ),
     );
   }
 }
