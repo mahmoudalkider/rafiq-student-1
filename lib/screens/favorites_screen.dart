@@ -1,8 +1,10 @@
+
 import 'package:flutter/material.dart';
 
 import '../models/course_model.dart';
 import '../data/courses_data.dart';
 import '../services/local_storage_service.dart';
+import '../services/courses_remote_service.dart';
 import 'courses_screen.dart';
 
 class FavoritesScreen extends StatefulWidget {
@@ -15,6 +17,7 @@ class FavoritesScreen extends StatefulWidget {
 class _FavoritesScreenState extends State<FavoritesScreen> {
   List<Course> _favoriteCourses = [];
   bool _isLoading = true;
+  bool _hasError = false;
 
   @override
   void initState() {
@@ -23,31 +26,51 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   }
 
   Future<void> _loadFavorites() async {
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _hasError = false;
+      });
+    }
+
     try {
       final favoriteIds = await LocalStorageService.getFavorites();
 
-      final courses = CoursesData.allCourses.where((course) {
-        return favoriteIds.contains(course.id);
+      List<Course> courses;
+
+      try {
+        final remoteCourses = await CoursesRemoteService.getCourses();
+        courses = remoteCourses.isNotEmpty
+            ? remoteCourses
+            : CoursesData.allCourses;
+      } catch (_) {
+        courses = CoursesData.allCourses;
+        _hasError = true;
+      }
+
+      final favorites = courses.where((course) {
+        return favoriteIds.contains(course.id) && course.isPublished;
       }).toList();
 
+      for (final course in favorites) {
+        course.isFavorite = true;
+      }
+
       if (!mounted) return;
 
       setState(() {
-        _favoriteCourses = courses;
+        _favoriteCourses = favorites;
         _isLoading = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
 
       setState(() {
         _isLoading = false;
+        _hasError = true;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تعذر تحميل الدورات المفضلة'),
-        ),
-      );
+      _message('تعذر تحميل الدورات المفضلة');
     }
   }
 
@@ -61,23 +84,12 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         _favoriteCourses.removeWhere(
           (item) => item.id == course.id,
         );
-
         course.isFavorite = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم حذف الدورة من المفضلة'),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تعذر حذف الدورة، حاول مرة أخرى'),
-        ),
-      );
+      _message('تم حذف الدورة من المفضلة');
+    } catch (_) {
+      _message('تعذر حذف الدورة. حاول مرة أخرى.');
     }
   }
 
@@ -85,10 +97,18 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => CourseDetailsScreen(
-          course: course,
-        ),
+        builder: (_) => CourseDetailsScreen(course: course),
       ),
+    ).then((_) {
+      if (mounted) _loadFavorites();
+    });
+  }
+
+  void _message(String value) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(value)),
     );
   }
 
@@ -102,98 +122,102 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
           centerTitle: true,
           actions: [
             IconButton(
-              onPressed: _loadFavorites,
+              onPressed: _isLoading ? null : _loadFavorites,
               icon: const Icon(Icons.refresh),
-              tooltip: 'تحديث',
+              tooltip: 'تحديث المفضلة',
             ),
           ],
         ),
         body: _isLoading
-            ? const Center(
-                child: CircularProgressIndicator(),
-              )
-            : _favoriteCourses.isEmpty
-                ? _buildEmptyState()
-                : ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: _favoriteCourses.length,
-                    itemBuilder: (context, index) {
-                      final course = _favoriteCourses[index];
-
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.all(12),
-                          leading: CircleAvatar(
-                            radius: 27,
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
+                onRefresh: _loadFavorites,
+                child: _favoriteCourses.isEmpty
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: [
+                          SizedBox(
+                            height: MediaQuery.of(context).size.height * 0.25,
+                          ),
+                          const Icon(
+                            Icons.favorite_border,
+                            size: 75,
+                            color: Colors.grey,
+                          ),
+                          const SizedBox(height: 18),
+                          const Center(
                             child: Text(
-                              course.imageUrl,
-                              style: const TextStyle(fontSize: 25),
+                              'لا توجد دورات مفضلة حتى الآن',
+                              style: TextStyle(
+                                fontSize: 19,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
-                          title: Text(
-                            course.title,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          subtitle: Padding(
-                            padding: const EdgeInsets.only(top: 6),
+                          const SizedBox(height: 10),
+                          const Center(
                             child: Text(
-                              course.description,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
+                              'افتح الدورات واضغط على علامة القلب لإضافتها هنا.',
+                              textAlign: TextAlign.center,
                             ),
                           ),
-                          trailing: IconButton(
-                            onPressed: () => _removeFavorite(course),
-                            icon: const Icon(
-                              Icons.favorite,
-                              color: Colors.red,
+                          if (_hasError)
+                            const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: Text(
+                                'تعذر الاتصال بالخادم. يتم استخدام البيانات المحلية عند توفرها.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.orange),
+                              ),
                             ),
-                            tooltip: 'إزالة من المفضلة',
-                          ),
-                          onTap: () => _openCourse(course),
-                        ),
-                      );
-                    },
-                  ),
-      ),
-    );
-  }
+                        ],
+                      )
+                    : ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(12),
+                        itemCount: _favoriteCourses.length,
+                        itemBuilder: (context, index) {
+                          final course = _favoriteCourses[index];
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.favorite_border,
-              size: 75,
-              color: Colors.grey[400],
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'لا توجد دورات مفضلة حتى الآن',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 19,
-                fontWeight: FontWeight.bold,
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.all(12),
+                              leading: CircleAvatar(
+                                radius: 27,
+                                child: Text(
+                                  course.imageUrl,
+                                  style: const TextStyle(fontSize: 25),
+                                ),
+                              ),
+                              title: Text(
+                                course.title,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Text(
+                                  course.description,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              trailing: IconButton(
+                                onPressed: () => _removeFavorite(course),
+                                icon: const Icon(
+                                  Icons.favorite,
+                                  color: Colors.red,
+                                ),
+                                tooltip: 'إزالة من المفضلة',
+                              ),
+                              onTap: () => _openCourse(course),
+                            ),
+                          );
+                        },
+                      ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'أضف الدورات التي تحبها إلى المفضلة لتجدها هنا بسهولة.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 15,
-                color: Colors.grey[600],
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
