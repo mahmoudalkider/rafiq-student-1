@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 
 import '../models/course_model.dart';
@@ -17,7 +18,6 @@ class _CoursesScreenState extends State<CoursesScreen> {
   late List<Course> _courses;
   String _searchText = '';
   String _selectedCategory = 'الكل';
-
   bool _isLoading = true;
   bool _hasError = false;
 
@@ -29,10 +29,12 @@ class _CoursesScreenState extends State<CoursesScreen> {
   }
 
   Future<void> _loadCourses() async {
-    setState(() {
-      _isLoading = true;
-      _hasError = false;
-    });
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _hasError = false;
+      });
+    }
 
     try {
       final remoteCourses =
@@ -44,7 +46,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
         _courses = remoteCourses;
       }
 
-      await _loadFavorites();
+      await _loadLocalData();
 
       if (!mounted) return;
 
@@ -54,7 +56,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
     } catch (e) {
       if (!mounted) return;
 
-      await _loadFavorites();
+      await _loadLocalData();
 
       if (!mounted) return;
 
@@ -65,11 +67,20 @@ class _CoursesScreenState extends State<CoursesScreen> {
     }
   }
 
-  Future<void> _loadFavorites() async {
+  Future<void> _loadLocalData() async {
     final favorites = await LocalStorageService.getFavorites();
 
     for (final course in _courses) {
       course.isFavorite = favorites.contains(course.id);
+
+      final completed =
+          await LocalStorageService.getCompletedLessons(course.id);
+
+      final completedSet = completed.toSet();
+
+      for (final lesson in course.lessons) {
+        lesson.isCompleted = completedSet.contains(lesson.id);
+      }
     }
   }
 
@@ -85,17 +96,15 @@ class _CoursesScreenState extends State<CoursesScreen> {
 
   List<Course> get _filteredCourses {
     return _courses.where((course) {
+      final query = _searchText.toLowerCase();
+
       final matchesSearch =
-          course.title.toLowerCase().contains(
-                _searchText.toLowerCase(),
-              ) ||
-              course.description.toLowerCase().contains(
-                    _searchText.toLowerCase(),
-                  );
+          course.title.toLowerCase().contains(query) ||
+          course.description.toLowerCase().contains(query);
 
       final matchesCategory =
           _selectedCategory == 'الكل' ||
-              course.category == _selectedCategory;
+          course.category == _selectedCategory;
 
       return matchesSearch &&
           matchesCategory &&
@@ -135,11 +144,12 @@ class _CoursesScreenState extends State<CoursesScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            CourseDetailsScreen(course: course),
+        builder: (_) => CourseDetailsScreen(course: course),
       ),
     ).then((_) {
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {});
+      }
     });
   }
 
@@ -186,16 +196,13 @@ class _CoursesScreenState extends State<CoursesScreen> {
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: _categories.map((category) {
-                  final selected =
-                      category == _selectedCategory;
-
                   return Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 5,
                     ),
                     child: ChoiceChip(
                       label: Text(category),
-                      selected: selected,
+                      selected: category == _selectedCategory,
                       onSelected: (_) {
                         setState(() {
                           _selectedCategory = category;
@@ -218,7 +225,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
                             padding: EdgeInsets.all(8),
                             child: Text(
                               'تعذر الاتصال بقاعدة البيانات. '
-                              'نعرض الدورات المحفوظة محلياً.',
+                              'نعرض الدورات المتاحة محلياً.',
                               textAlign: TextAlign.center,
                               style: TextStyle(color: Colors.orange),
                             ),
@@ -245,8 +252,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
 
                                     return CourseCard(
                                       course: course,
-                                      onTap: () =>
-                                          _openCourse(course),
+                                      onTap: () => _openCourse(course),
                                       onFavoriteTap: () =>
                                           _toggleFavorite(course),
                                     );
@@ -276,11 +282,40 @@ class CourseDetailsScreen extends StatefulWidget {
       _CourseDetailsScreenState();
 }
 
-class _CourseDetailsScreenState
-    extends State<CourseDetailsScreen> {
+class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _loadProgress();
+  }
+
+  Future<void> _loadProgress() async {
+    final completed =
+        await LocalStorageService.getCompletedLessons(
+      widget.course.id,
+    );
+
+    if (!mounted) return;
+
+    final completedSet = completed.toSet();
+
+    setState(() {
+      for (final lesson in widget.course.lessons) {
+        lesson.isCompleted = completedSet.contains(lesson.id);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final course = widget.course;
+
+    final completedCount =
+        course.lessons.where((lesson) => lesson.isCompleted).length;
+
+    final progress = course.lessons.isEmpty
+        ? 0.0
+        : completedCount / course.lessons.length;
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -309,13 +344,13 @@ class _CourseDetailsScreenState
               course.description,
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _InfoItem(
                   icon: Icons.menu_book,
-                  label: '${course.lessons.length} دروس',
+                  label: '${course.lessons.length} درس',
                 ),
                 _InfoItem(
                   icon: Icons.signal_cellular_alt,
@@ -328,6 +363,30 @@ class _CourseDetailsScreenState
               ],
             ),
             const SizedBox(height: 24),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'تقدمك في الدورة',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 17,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    LinearProgressIndicator(value: progress),
+                    const SizedBox(height: 8),
+                    Text(
+                      '$completedCount من ${course.lessons.length} درس مكتمل',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
             const Text(
               'محتويات الدورة',
               style: TextStyle(
@@ -344,7 +403,15 @@ class _CourseDetailsScreenState
                 margin: const EdgeInsets.only(bottom: 10),
                 child: ListTile(
                   leading: CircleAvatar(
-                    child: Text('${index + 1}'),
+                    child: lesson.isCompleted
+                        ? const Icon(
+                            Icons.check,
+                            color: Colors.white,
+                          )
+                        : Text('${index + 1}'),
+                    backgroundColor: lesson.isCompleted
+                        ? Colors.green
+                        : null,
                   ),
                   title: Text(lesson.title),
                   subtitle: Text(
@@ -363,15 +430,16 @@ class _CourseDetailsScreenState
                     await Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) =>
-                            LessonDetailsScreen(
+                        builder: (_) => LessonDetailsScreen(
                           lesson: lesson,
                           course: course,
                         ),
                       ),
                     );
 
-                    if (mounted) setState(() {});
+                    if (mounted) {
+                      await _loadProgress();
+                    }
                   },
                 ),
               );
@@ -403,7 +471,9 @@ class _LessonDetailsScreenState
   bool _isSaving = false;
 
   Future<void> _completeLesson() async {
-    if (_isSaving || widget.lesson.isCompleted) {
+    if (_isSaving) return;
+
+    if (widget.lesson.isCompleted) {
       Navigator.pop(context);
       return;
     }
@@ -457,6 +527,19 @@ class _LessonDetailsScreenState
     }
   }
 
+  Widget _sectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final lesson = widget.lesson;
@@ -493,14 +576,7 @@ class _LessonDetailsScreenState
             ),
             if (lesson.summary.isNotEmpty) ...[
               const SizedBox(height: 24),
-              const Text(
-                'ملخص الدرس',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
+              _sectionTitle('ملخص الدرس'),
               Text(
                 lesson.summary,
                 style: const TextStyle(
@@ -511,17 +587,10 @@ class _LessonDetailsScreenState
             ],
             if (lesson.sections.isNotEmpty) ...[
               const SizedBox(height: 24),
-              const Text(
-                'محاور الدرس',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              _sectionTitle('محاور الدرس'),
               ...lesson.sections.map(
                 (section) => ListTile(
-                  leading:
-                      const Icon(Icons.check_circle_outline),
+                  leading: const Icon(Icons.check_circle_outline),
                   title: Text(section),
                   contentPadding: EdgeInsets.zero,
                 ),
@@ -529,21 +598,12 @@ class _LessonDetailsScreenState
             ],
             if (lesson.bulletPoints.isNotEmpty) ...[
               const SizedBox(height: 20),
-              const Text(
-                'أهم النقاط',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              _sectionTitle('أهم النقاط'),
               ...lesson.bulletPoints.map(
                 (point) => Padding(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 6,
-                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Row(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Icon(
                         Icons.circle,
@@ -567,13 +627,7 @@ class _LessonDetailsScreenState
             ],
             if (lesson.keyTerms.isNotEmpty) ...[
               const SizedBox(height: 20),
-              const Text(
-                'مصطلحات مهمة',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              _sectionTitle('مصطلحات مهمة'),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -590,15 +644,12 @@ class _LessonDetailsScreenState
                     Icons.check_circle,
                     color: Colors.green,
                   ),
-                  title: Text(
-                    'لقد أكملت هذا الدرس سابقاً',
-                  ),
+                  title: Text('لقد أكملت هذا الدرس سابقاً'),
                 ),
               )
             else
               ElevatedButton.icon(
-                onPressed:
-                    _isSaving ? null : _completeLesson,
+                onPressed: _isSaving ? null : _completeLesson,
                 icon: _isSaving
                     ? const SizedBox(
                         width: 18,
@@ -609,9 +660,7 @@ class _LessonDetailsScreenState
                       )
                     : const Icon(Icons.check),
                 label: Text(
-                  _isSaving
-                      ? 'جارٍ الحفظ...'
-                      : 'إكمال الدرس',
+                  _isSaving ? 'جارٍ الحفظ...' : 'إكمال الدرس',
                 ),
               ),
           ],
