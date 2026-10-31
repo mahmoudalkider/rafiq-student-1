@@ -9,11 +9,10 @@ class Course {
   final int totalLessons;
   final List<Lesson> lessons;
 
-  // مستوى الوصول إلى الدورة
-  final String accessLevel; // public, normal, vip
+  // public أو normal أو vip
+  final String accessLevel;
 
-  // حالة نشر الدورة من لوحة المالك
-  bool isPublished;
+  final bool isPublished;
 
   bool isFavorite;
   double progressPercentage;
@@ -38,18 +37,11 @@ class Lesson {
   final String id;
   final String title;
   final String content;
-
-  // ملخص الدرس
   final String summary;
-
-  // الكلمات والمصطلحات المهمة
   final List<String> keyTerms;
-
   final List<String> sections;
   final List<String> bulletPoints;
   final String? imageUrl;
-
-  // الزمن التقريبي للدرس بالدقائق
   final int estimatedMinutes;
 
   bool isCompleted;
