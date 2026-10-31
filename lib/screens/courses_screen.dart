@@ -1,10 +1,10 @@
-
 import 'package:flutter/material.dart';
 
 import '../models/course_model.dart';
 import '../data/courses_data.dart';
 import '../widgets/course_card.dart';
 import '../services/local_storage_service.dart';
+import '../services/courses_remote_service.dart';
 
 class CoursesScreen extends StatefulWidget {
   const CoursesScreen({Key? key}) : super(key: key);
@@ -18,23 +18,59 @@ class _CoursesScreenState extends State<CoursesScreen> {
   String _searchText = '';
   String _selectedCategory = 'الكل';
 
+  bool _isLoading = true;
+  bool _hasError = false;
+
   @override
   void initState() {
     super.initState();
     _courses = CoursesData.allCourses;
-    _loadFavorites();
+    _loadCourses();
+  }
+
+  Future<void> _loadCourses() async {
+    setState(() {
+      _isLoading = true;
+      _hasError = false;
+    });
+
+    try {
+      final remoteCourses =
+          await CoursesRemoteService.getCourses();
+
+      if (!mounted) return;
+
+      if (remoteCourses.isNotEmpty) {
+        _courses = remoteCourses;
+      }
+
+      await _loadFavorites();
+
+      if (!mounted) return;
+
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      await _loadFavorites();
+
+      if (!mounted) return;
+
+      setState(() {
+        _isLoading = false;
+        _hasError = true;
+      });
+    }
   }
 
   Future<void> _loadFavorites() async {
     final favorites = await LocalStorageService.getFavorites();
 
-    if (!mounted) return;
-
-    setState(() {
-      for (final course in _courses) {
-        course.isFavorite = favorites.contains(course.id);
-      }
-    });
+    for (final course in _courses) {
+      course.isFavorite = favorites.contains(course.id);
+    }
   }
 
   List<String> get _categories {
@@ -50,15 +86,20 @@ class _CoursesScreenState extends State<CoursesScreen> {
   List<Course> get _filteredCourses {
     return _courses.where((course) {
       final matchesSearch =
-          course.title.toLowerCase().contains(_searchText.toLowerCase()) ||
-          course.description
-              .toLowerCase()
-              .contains(_searchText.toLowerCase());
+          course.title.toLowerCase().contains(
+                _searchText.toLowerCase(),
+              ) ||
+              course.description.toLowerCase().contains(
+                    _searchText.toLowerCase(),
+                  );
 
-      final matchesCategory = _selectedCategory == 'الكل' ||
-          course.category == _selectedCategory;
+      final matchesCategory =
+          _selectedCategory == 'الكل' ||
+              course.category == _selectedCategory;
 
-      return matchesSearch && matchesCategory && course.isPublished;
+      return matchesSearch &&
+          matchesCategory &&
+          course.isPublished;
     }).toList();
   }
 
@@ -83,7 +124,9 @@ class _CoursesScreenState extends State<CoursesScreen> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذر حفظ المفضلة')),
+        const SnackBar(
+          content: Text('تعذر حفظ المفضلة'),
+        ),
       );
     }
   }
@@ -92,7 +135,8 @@ class _CoursesScreenState extends State<CoursesScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => CourseDetailsScreen(course: course),
+        builder: (context) =>
+            CourseDetailsScreen(course: course),
       ),
     ).then((_) {
       if (mounted) setState(() {});
@@ -109,6 +153,13 @@ class _CoursesScreenState extends State<CoursesScreen> {
         appBar: AppBar(
           title: const Text('الدورات التعليمية'),
           centerTitle: true,
+          actions: [
+            IconButton(
+              onPressed: _loadCourses,
+              icon: const Icon(Icons.refresh),
+              tooltip: 'تحديث الدورات',
+            ),
+          ],
         ),
         body: Column(
           children: [
@@ -135,10 +186,13 @@ class _CoursesScreenState extends State<CoursesScreen> {
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: _categories.map((category) {
-                  final selected = category == _selectedCategory;
+                  final selected =
+                      category == _selectedCategory;
 
                   return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 5),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                    ),
                     child: ChoiceChip(
                       label: Text(category),
                       selected: selected,
@@ -153,29 +207,53 @@ class _CoursesScreenState extends State<CoursesScreen> {
               ),
             ),
             Expanded(
-              child: courses.isEmpty
+              child: _isLoading
                   ? const Center(
-                      child: Text('لا توجد دورات مطابقة للبحث.'),
+                      child: CircularProgressIndicator(),
                     )
-                  : GridView.builder(
-                      padding: const EdgeInsets.all(8),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        childAspectRatio: 0.72,
-                        crossAxisSpacing: 4,
-                        mainAxisSpacing: 4,
-                      ),
-                      itemCount: courses.length,
-                      itemBuilder: (context, index) {
-                        final course = courses[index];
+                  : Column(
+                      children: [
+                        if (_hasError)
+                          const Padding(
+                            padding: EdgeInsets.all(8),
+                            child: Text(
+                              'تعذر الاتصال بقاعدة البيانات. '
+                              'نعرض الدورات المحفوظة محلياً.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.orange),
+                            ),
+                          ),
+                        Expanded(
+                          child: courses.isEmpty
+                              ? const Center(
+                                  child: Text(
+                                    'لا توجد دورات مطابقة للبحث.',
+                                  ),
+                                )
+                              : GridView.builder(
+                                  padding: const EdgeInsets.all(8),
+                                  gridDelegate:
+                                      const SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 2,
+                                    childAspectRatio: 0.72,
+                                    crossAxisSpacing: 4,
+                                    mainAxisSpacing: 4,
+                                  ),
+                                  itemCount: courses.length,
+                                  itemBuilder: (context, index) {
+                                    final course = courses[index];
 
-                        return CourseCard(
-                          course: course,
-                          onTap: () => _openCourse(course),
-                          onFavoriteTap: () => _toggleFavorite(course),
-                        );
-                      },
+                                    return CourseCard(
+                                      course: course,
+                                      onTap: () =>
+                                          _openCourse(course),
+                                      onFavoriteTap: () =>
+                                          _toggleFavorite(course),
+                                    );
+                                  },
+                                ),
+                        ),
+                      ],
                     ),
             ),
           ],
@@ -198,7 +276,8 @@ class CourseDetailsScreen extends StatefulWidget {
       _CourseDetailsScreenState();
 }
 
-class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
+class _CourseDetailsScreenState
+    extends State<CourseDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     final course = widget.course;
@@ -275,14 +354,17 @@ class _CourseDetailsScreenState extends State<CourseDetailsScreen> {
                     lesson.isCompleted
                         ? Icons.check_circle
                         : Icons.arrow_forward_ios,
-                    color: lesson.isCompleted ? Colors.green : null,
+                    color: lesson.isCompleted
+                        ? Colors.green
+                        : null,
                     size: 20,
                   ),
                   onTap: () async {
                     await Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => LessonDetailsScreen(
+                        builder: (context) =>
+                            LessonDetailsScreen(
                           lesson: lesson,
                           course: course,
                         ),
@@ -316,7 +398,8 @@ class LessonDetailsScreen extends StatefulWidget {
       _LessonDetailsScreenState();
 }
 
-class _LessonDetailsScreenState extends State<LessonDetailsScreen> {
+class _LessonDetailsScreenState
+    extends State<LessonDetailsScreen> {
   bool _isSaving = false;
 
   Future<void> _completeLesson() async {
@@ -366,7 +449,9 @@ class _LessonDetailsScreenState extends State<LessonDetailsScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('حدث خطأ أثناء حفظ تقدمك. حاول مرة أخرى.'),
+          content: Text(
+            'حدث خطأ أثناء حفظ تقدمك. حاول مرة أخرى.',
+          ),
         ),
       );
     }
@@ -418,7 +503,10 @@ class _LessonDetailsScreenState extends State<LessonDetailsScreen> {
               const SizedBox(height: 8),
               Text(
                 lesson.summary,
-                style: const TextStyle(fontSize: 16, height: 1.8),
+                style: const TextStyle(
+                  fontSize: 16,
+                  height: 1.8,
+                ),
               ),
             ],
             if (lesson.sections.isNotEmpty) ...[
@@ -432,7 +520,8 @@ class _LessonDetailsScreenState extends State<LessonDetailsScreen> {
               ),
               ...lesson.sections.map(
                 (section) => ListTile(
-                  leading: const Icon(Icons.check_circle_outline),
+                  leading:
+                      const Icon(Icons.check_circle_outline),
                   title: Text(section),
                   contentPadding: EdgeInsets.zero,
                 ),
@@ -449,9 +538,12 @@ class _LessonDetailsScreenState extends State<LessonDetailsScreen> {
               ),
               ...lesson.bulletPoints.map(
                 (point) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 6,
+                  ),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
                     children: [
                       const Icon(
                         Icons.circle,
@@ -498,12 +590,15 @@ class _LessonDetailsScreenState extends State<LessonDetailsScreen> {
                     Icons.check_circle,
                     color: Colors.green,
                   ),
-                  title: Text('لقد أكملت هذا الدرس سابقاً'),
+                  title: Text(
+                    'لقد أكملت هذا الدرس سابقاً',
+                  ),
                 ),
               )
             else
               ElevatedButton.icon(
-                onPressed: _isSaving ? null : _completeLesson,
+                onPressed:
+                    _isSaving ? null : _completeLesson,
                 icon: _isSaving
                     ? const SizedBox(
                         width: 18,
@@ -514,7 +609,9 @@ class _LessonDetailsScreenState extends State<LessonDetailsScreen> {
                       )
                     : const Icon(Icons.check),
                 label: Text(
-                  _isSaving ? 'جارٍ الحفظ...' : 'إكمال الدرس',
+                  _isSaving
+                      ? 'جارٍ الحفظ...'
+                      : 'إكمال الدرس',
                 ),
               ),
           ],
