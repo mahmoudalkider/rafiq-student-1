@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../data/courses_data.dart';
 import '../models/course_model.dart';
 import '../services/local_storage_service.dart';
+import '../services/courses_remote_service.dart';
 
 class ProgressScreen extends StatefulWidget {
   const ProgressScreen({Key? key}) : super(key: key);
@@ -25,16 +26,25 @@ class _ProgressScreenState extends State<ProgressScreen> {
   }
 
   Future<void> _loadProgress() async {
+    if (mounted) {
+      setState(() => _isLoading = true);
+    }
+
     try {
-      final courses = CoursesData.allCourses
-          .where((course) => course.isPublished)
-          .toList();
+      List<Course> courses;
+
+      try {
+        final remote = await CoursesRemoteService.getCourses();
+        courses = remote.isNotEmpty ? remote : CoursesData.allCourses;
+      } catch (_) {
+        courses = CoursesData.allCourses;
+      }
 
       int completedTotal = 0;
       int lessonsTotal = 0;
       final results = <_CourseProgress>[];
 
-      for (final course in courses) {
+      for (final course in courses.where((c) => c.isPublished)) {
         final completedIds =
             await LocalStorageService.getCompletedLessons(course.id);
 
@@ -47,7 +57,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
         results.add(
           _CourseProgress(
             course: course,
-            completed: completed,
+            completed: completed.clamp(0, total),
             total: total,
           ),
         );
@@ -64,21 +74,29 @@ class _ProgressScreenState extends State<ProgressScreen> {
     } catch (e) {
       debugPrint('خطأ في تحميل التقدم: $e');
 
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (!mounted) return;
+
+      setState(() => _isLoading = false);
+      _message('تعذر تحميل تقدمك الدراسي');
     }
   }
 
   double get _overallProgress {
     if (_totalLessons == 0) return 0;
-    return _completedLessons / _totalLessons;
+    return (_completedLessons / _totalLessons).clamp(0.0, 1.0);
+  }
+
+  void _message(String value) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(value)),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final percentage = (_overallProgress * 100).round();
+
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
@@ -87,12 +105,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
           centerTitle: true,
           actions: [
             IconButton(
-              onPressed: () {
-                setState(() {
-                  _isLoading = true;
-                });
-                _loadProgress();
-              },
+              onPressed: _isLoading ? null : _loadProgress,
               icon: const Icon(Icons.refresh),
               tooltip: 'تحديث التقدم',
             ),
@@ -103,9 +116,10 @@ class _ProgressScreenState extends State<ProgressScreen> {
             : RefreshIndicator(
                 onRefresh: _loadProgress,
                 child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(16),
                   children: [
-                    _buildSummaryCard(),
+                    _buildSummaryCard(percentage),
                     const SizedBox(height: 24),
                     const Text(
                       'تقدمك في كل دورة',
@@ -116,9 +130,9 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     ),
                     const SizedBox(height: 12),
                     if (_courseProgress.isEmpty)
-                      const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(24),
+                      const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Center(
                           child: Text('لا توجد دورات متاحة حالياً.'),
                         ),
                       )
@@ -133,9 +147,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
     );
   }
 
-  Widget _buildSummaryCard() {
-    final percentage = (_overallProgress * 100).round();
-
+  Widget _buildSummaryCard(int percentage) {
     return Card(
       elevation: 3,
       shape: RoundedRectangleBorder(
@@ -197,11 +209,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
     );
   }
 
-  Widget _buildNumber(
-    String number,
-    String label,
-    Color color,
-  ) {
+  Widget _buildNumber(String number, String label, Color color) {
     return Column(
       children: [
         Text(
@@ -219,9 +227,9 @@ class _ProgressScreenState extends State<ProgressScreen> {
   }
 
   Widget _buildCourseCard(_CourseProgress item) {
-    final percentage = item.total == 0
+    final progress = item.total == 0
         ? 0.0
-        : item.completed / item.total;
+        : (item.completed / item.total).clamp(0.0, 1.0);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -242,14 +250,14 @@ class _ProgressScreenState extends State<ProgressScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('${item.completed} من ${item.total} درس'),
-                Text('${(percentage * 100).round()}%'),
+                Text('${(progress * 100).round()}%'),
               ],
             ),
             const SizedBox(height: 10),
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: LinearProgressIndicator(
-                value: percentage,
+                value: progress,
                 minHeight: 9,
               ),
             ),
