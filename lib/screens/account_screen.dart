@@ -10,9 +10,13 @@ class AccountScreen extends StatefulWidget {
 }
 
 class _AccountScreenState extends State<AccountScreen> {
-  final _supabase = Supabase.instance.client;
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final SupabaseClient _supabase = Supabase.instance.client;
+
+  final TextEditingController _emailController =
+      TextEditingController();
+
+  final TextEditingController _passwordController =
+      TextEditingController();
 
   bool _loading = false;
   bool _obscurePassword = true;
@@ -22,7 +26,8 @@ class _AccountScreenState extends State<AccountScreen> {
   String _email = '';
   String _plan = 'مجاني';
 
-  bool get _isLoggedIn => _supabase.auth.currentUser != null;
+  bool get _isLoggedIn =>
+      _supabase.auth.currentUser != null;
 
   @override
   void initState() {
@@ -35,6 +40,7 @@ class _AccountScreenState extends State<AccountScreen> {
 
     if (user == null) {
       if (!mounted) return;
+
       setState(() {
         _name = 'طالب رفيق الطالب';
         _email = '';
@@ -51,29 +57,42 @@ class _AccountScreenState extends State<AccountScreen> {
           .eq('id', user.id)
           .maybeSingle();
 
-      final vipResult = await _supabase.rpc('has_permanent_vip_grant');
+      final vipResult =
+          await _supabase.rpc('has_permanent_vip_grant');
+
       final hasVip = vipResult == true;
 
+      final metadata = user.userMetadata ?? {};
+
+      final name = (metadata['full_name'] ??
+              metadata['name'] ??
+              'طالب رفيق الطالب')
+          .toString();
+
+      if (!mounted) return;
+
+      setState(() {
+        _email = profile?['email']?.toString() ??
+            user.email ??
+            '';
+
+        _name = name;
+        _hasVipGrant = hasVip;
+        _plan = hasVip
+            ? 'VIP دائم - منحة مجانية'
+            : 'مجاني';
+      });
+    } catch (error) {
       if (!mounted) return;
 
       setState(() {
         _email = user.email ?? '';
         _name = (user.userMetadata?['full_name'] ??
-                user.userMetadata?['name'] ??
                 'طالب رفيق الطالب')
             .toString();
-        _hasVipGrant = hasVip;
-        _plan = hasVip ? 'VIP دائم - منحة مجانية' : 'مجاني';
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _email = user.email ?? '';
-        _name = (user.userMetadata?['full_name'] ??
-                'طالب رفيق الطالب')
-            .toString();
-        _plan = 'تعذر تحميل حالة الاشتراك';
+
         _hasVipGrant = false;
+        _plan = 'تعذر تحميل حالة الاشتراك';
       });
     }
   }
@@ -83,11 +102,13 @@ class _AccountScreenState extends State<AccountScreen> {
     final password = _passwordController.text;
 
     if (email.isEmpty || password.isEmpty) {
-      _message('أدخل البريد الإلكتروني وكلمة المرور');
+      _showMessage('أدخل البريد الإلكتروني وكلمة المرور');
       return;
     }
 
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+    });
 
     try {
       await _supabase.auth.signInWithPassword(
@@ -98,41 +119,56 @@ class _AccountScreenState extends State<AccountScreen> {
       await _loadAccount();
 
       if (!mounted) return;
+
       _emailController.clear();
       _passwordController.clear();
-      _message('تم تسجيل الدخول بنجاح');
+
+      _showMessage('تم تسجيل الدخول بنجاح');
     } on AuthException catch (error) {
-      _message(error.message);
-    } catch (_) {
-      _message('تعذر تسجيل الدخول. تحقق من اتصال الإنترنت.');
+      _showMessage(error.message);
+    } catch (error) {
+      _showMessage('تعذر تسجيل الدخول. تحقق من اتصال الإنترنت.');
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
     }
   }
 
   Future<void> _logout() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+    });
 
     try {
       await _supabase.auth.signOut();
 
       if (!mounted) return;
+
       setState(() {
         _name = 'طالب رفيق الطالب';
         _email = '';
         _plan = 'مجاني';
         _hasVipGrant = false;
       });
-      _message('تم تسجيل الخروج');
-    } catch (_) {
-      _message('تعذر تسجيل الخروج. حاول مرة أخرى.');
+
+      _showMessage('تم تسجيل الخروج');
+    } catch (error) {
+      _showMessage('تعذر تسجيل الخروج. حاول مرة أخرى.');
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
     }
   }
 
-  void _message(String value) {
+  void _showMessage(String value) {
     if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(value),
@@ -166,7 +202,9 @@ class _AccountScreenState extends State<AccountScreen> {
           ],
         ),
         body: _loading
-            ? const Center(child: CircularProgressIndicator())
+            ? const Center(
+                child: CircularProgressIndicator(),
+              )
             : _isLoggedIn
                 ? _accountView()
                 : _loginView(),
@@ -261,10 +299,15 @@ class _AccountScreenState extends State<AccountScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           const SizedBox(height: 15),
-          const Center(
+          Center(
             child: CircleAvatar(
               radius: 48,
-              child: Icon(Icons.person, size: 55),
+              backgroundColor: Colors.blue.withOpacity(0.1),
+              child: const Icon(
+                Icons.person,
+                size: 55,
+                color: Colors.blue,
+              ),
             ),
           ),
           const SizedBox(height: 18),
@@ -289,7 +332,10 @@ class _AccountScreenState extends State<AccountScreen> {
           const SizedBox(height: 28),
           const Text(
             'معلومات الحساب',
-            style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontSize: 19,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           Card(
             child: ListTile(
@@ -311,18 +357,25 @@ class _AccountScreenState extends State<AccountScreen> {
           const SizedBox(height: 20),
           const Text(
             'الاشتراك',
-            style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontSize: 19,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           Card(
             child: ListTile(
               leading: Icon(
                 Icons.workspace_premium,
-                color: _hasVipGrant ? Colors.amber : Colors.orange,
+                color: _hasVipGrant
+                    ? Colors.amber
+                    : Colors.orange,
               ),
               title: const Text('الاشتراك الحالي'),
               subtitle: Text(_plan),
               trailing: Icon(
-                _hasVipGrant ? Icons.verified : Icons.verified_user_outlined,
+                _hasVipGrant
+                    ? Icons.verified
+                    : Icons.verified_user_outlined,
                 color: _hasVipGrant ? Colors.green : null,
               ),
             ),
@@ -330,7 +383,10 @@ class _AccountScreenState extends State<AccountScreen> {
           if (_hasVipGrant)
             const Card(
               child: ListTile(
-                leading: Icon(Icons.card_giftcard, color: Colors.green),
+                leading: Icon(
+                  Icons.card_giftcard,
+                  color: Colors.green,
+                ),
                 title: Text('منحة VIP الدائمة'),
                 subtitle: Text(
                   'منحتك الإدارة اشتراك VIP بشكل دائم.',
