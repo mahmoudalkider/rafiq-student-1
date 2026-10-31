@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -9,19 +10,24 @@ class AccountScreen extends StatefulWidget {
 }
 
 class _AccountScreenState extends State<AccountScreen> {
-  final _supabase = Supabase.instance.client;
+  final SupabaseClient _supabase = Supabase.instance.client;
 
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final TextEditingController _emailController =
+      TextEditingController();
+
+  final TextEditingController _passwordController =
+      TextEditingController();
 
   bool _loading = false;
   bool _obscurePassword = true;
+  bool _hasPermanentVipGrant = false;
 
   String _name = '';
   String _email = '';
   String _plan = 'مجاني';
 
-  bool get _isLoggedIn => _supabase.auth.currentUser != null;
+  bool get _isLoggedIn =>
+      _supabase.auth.currentUser != null;
 
   @override
   void initState() {
@@ -39,7 +45,9 @@ class _AccountScreenState extends State<AccountScreen> {
         _name = '';
         _email = '';
         _plan = 'مجاني';
+        _hasPermanentVipGrant = false;
       });
+
       return;
     }
 
@@ -50,24 +58,42 @@ class _AccountScreenState extends State<AccountScreen> {
           .eq('id', user.id)
           .maybeSingle();
 
+      final vipResult = await _supabase.rpc(
+        'has_permanent_vip_grant',
+      );
+
+      final bool hasVip = vipResult == true;
+
       if (!mounted) return;
 
       setState(() {
         _email = user.email ?? '';
+
         _name = profile?['full_name'] ??
             user.userMetadata?['full_name'] ??
             'طالب رفيق الطالب';
-        _plan = profile?['subscription_plan'] ?? 'مجاني';
+
+        _hasPermanentVipGrant = hasVip;
+
+        _plan = hasVip
+            ? 'VIP دائم - منحة مجانية'
+            : (profile?['subscription_plan'] ?? 'مجاني')
+                .toString();
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
 
       setState(() {
         _email = user.email ?? '';
         _name = user.userMetadata?['full_name'] ??
             'طالب رفيق الطالب';
-        _plan = 'مجاني';
+        _plan = 'تعذر تحميل الاشتراك';
+        _hasPermanentVipGrant = false;
       });
+
+      _showMessage(
+        'تعذر تحميل معلومات الاشتراك. تحقق من الاتصال.',
+      );
     }
   }
 
@@ -76,7 +102,9 @@ class _AccountScreenState extends State<AccountScreen> {
     final password = _passwordController.text;
 
     if (email.isEmpty || password.isEmpty) {
-      _showMessage('يرجى إدخال البريد الإلكتروني وكلمة المرور');
+      _showMessage(
+        'يرجى إدخال البريد الإلكتروني وكلمة المرور',
+      );
       return;
     }
 
@@ -100,8 +128,8 @@ class _AccountScreenState extends State<AccountScreen> {
       _showMessage('تم تسجيل الدخول بنجاح');
     } on AuthException catch (error) {
       _showMessage(error.message);
-    } catch (_) {
-      _showMessage('تعذر تسجيل الدخول. تحقق من اتصال الإنترنت.');
+    } catch (error) {
+      _showMessage('تعذر تسجيل الدخول. تحقق من الإنترنت.');
     } finally {
       if (mounted) {
         setState(() {
@@ -125,10 +153,11 @@ class _AccountScreenState extends State<AccountScreen> {
         _name = '';
         _email = '';
         _plan = 'مجاني';
+        _hasPermanentVipGrant = false;
       });
 
       _showMessage('تم تسجيل الخروج بنجاح');
-    } catch (_) {
+    } catch (error) {
       _showMessage('تعذر تسجيل الخروج. حاول مرة أخرى.');
     } finally {
       if (mounted) {
@@ -347,15 +376,37 @@ class _AccountScreenState extends State<AccountScreen> {
           const SizedBox(height: 12),
           Card(
             child: ListTile(
-              leading: const Icon(
+              leading: Icon(
                 Icons.workspace_premium,
-                color: Colors.orange,
+                color: _hasPermanentVipGrant
+                    ? Colors.amber
+                    : Colors.orange,
               ),
               title: const Text('الاشتراك الحالي'),
               subtitle: Text(_plan),
-              trailing: const Icon(Icons.verified_user_outlined),
+              trailing: Icon(
+                _hasPermanentVipGrant
+                    ? Icons.verified
+                    : Icons.verified_user_outlined,
+                color: _hasPermanentVipGrant
+                    ? Colors.green
+                    : null,
+              ),
             ),
           ),
+          if (_hasPermanentVipGrant)
+            Card(
+              child: ListTile(
+                leading: const Icon(
+                  Icons.card_giftcard,
+                  color: Colors.green,
+                ),
+                title: const Text('منحة VIP الدائمة'),
+                subtitle: const Text(
+                  'حصلت على VIP مجاناً وبشكل دائم من إدارة التطبيق.',
+                ),
+              ),
+            ),
           const SizedBox(height: 25),
           SizedBox(
             height: 50,
