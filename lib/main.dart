@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -14,7 +13,7 @@ Future<void> main() async {
 
   await Supabase.initialize(
     url: 'https://fvkyprjvoxwsevaqaluw.supabase.co',
-    publishableKey: 'sb_publishable_zcdOiO6nTYX5zWpHlhvZuQ_GZ4pDSJR',
+    publishableKey: 'sb_publishable_zcdOiO6nTY5XzWpHlhvZuQ_G4pDSJR',
   );
 
   runApp(const RafiqStudentApp());
@@ -27,9 +26,15 @@ class RafiqStudentApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'رفيق الطالب',
-      theme: AppTheme.lightTheme,
-      home: const MainApp(),
       debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
+      builder: (context, child) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
+      home: const MainApp(),
     );
   }
 }
@@ -52,38 +57,50 @@ class _MainAppState extends State<MainApp> {
     AccountScreen(),
   ];
 
+  void _changePage(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _screens[_selectedIndex],
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: _screens,
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         type: BottomNavigationBarType.fixed,
-        onTap: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
-        },
+        onTap: _changePage,
+        selectedFontSize: 12,
+        unselectedFontSize: 11,
         items: const [
           BottomNavigationBarItem(
-            icon: Icon(Icons.home),
+            icon: Icon(Icons.home_outlined),
+            activeIcon: Icon(Icons.home),
             label: 'الرئيسية',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.school),
+            icon: Icon(Icons.menu_book_outlined),
+            activeIcon: Icon(Icons.menu_book),
             label: 'الدورات',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.favorite),
+            icon: Icon(Icons.favorite_border),
+            activeIcon: Icon(Icons.favorite),
             label: 'المفضلة',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.trending_up),
-            label: 'التقدم',
+            activeIcon: Icon(Icons.show_chart),
+            label: 'تقدمي',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: 'الحساب',
+            icon: Icon(Icons.person_outline),
+            activeIcon: Icon(Icons.person),
+            label: 'حسابي',
           ),
         ],
       ),
