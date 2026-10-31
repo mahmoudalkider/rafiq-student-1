@@ -1,3 +1,4 @@
+
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
@@ -15,15 +16,19 @@ class LocalStorageService {
   }
 
   static Future<Database> _initDatabase() async {
-    final path = join(await getDatabasesPath(), dbName);
+    final dbPath = join(await getDatabasesPath(), dbName);
+
     return openDatabase(
-      path,
+      dbPath,
       version: 1,
       onCreate: _createTables,
     );
   }
 
-  static Future<void> _createTables(Database db, int version) async {
+  static Future<void> _createTables(
+    Database db,
+    int version,
+  ) async {
     await db.execute('''
       CREATE TABLE $favoritesTable (
         id TEXT PRIMARY KEY,
@@ -53,9 +58,11 @@ class LocalStorageService {
     ''');
   }
 
-  // Favorites
+  // المفضلة
+
   static Future<void> addFavorite(String courseId) async {
     final db = await database;
+
     await db.insert(
       favoritesTable,
       {
@@ -69,6 +76,7 @@ class LocalStorageService {
 
   static Future<void> removeFavorite(String courseId) async {
     final db = await database;
+
     await db.delete(
       favoritesTable,
       where: 'courseId = ?',
@@ -78,35 +86,57 @@ class LocalStorageService {
 
   static Future<List<String>> getFavorites() async {
     final db = await database;
-    final results = await db.query(favoritesTable);
-    return results.map((row) => row['courseId'] as String).toList();
+
+    final results = await db.query(
+      favoritesTable,
+      orderBy: 'addedAt DESC',
+    );
+
+    return results
+        .map((row) => row['courseId'] as String)
+        .toList();
   }
 
   static Future<bool> isFavorite(String courseId) async {
     final db = await database;
+
     final result = await db.query(
       favoritesTable,
       where: 'courseId = ?',
       whereArgs: [courseId],
+      limit: 1,
     );
+
     return result.isNotEmpty;
   }
 
-  // Progress
+  // التقدم الدراسي
+
   static Future<void> saveProgress(
     String courseId,
     int completedLessons,
     int totalLessons,
   ) async {
     final db = await database;
-    final percentage = (completedLessons / totalLessons * 100);
+
+    final safeTotal = totalLessons < 0 ? 0 : totalLessons;
+    final safeCompleted = completedLessons < 0
+        ? 0
+        : (completedLessons > safeTotal
+            ? safeTotal
+            : completedLessons);
+
+    final percentage = safeTotal == 0
+        ? 0.0
+        : (safeCompleted / safeTotal) * 100;
+
     await db.insert(
       progressTable,
       {
         'id': '${courseId}_progress',
         'courseId': courseId,
-        'completedLessons': completedLessons,
-        'totalLessons': totalLessons,
+        'completedLessons': safeCompleted,
+        'totalLessons': safeTotal,
         'progressPercentage': percentage,
         'lastAccessDate': DateTime.now().toIso8601String(),
       },
@@ -114,19 +144,29 @@ class LocalStorageService {
     );
   }
 
-  static Future<Map<String, dynamic>?> getProgress(String courseId) async {
+  static Future<Map<String, dynamic>?> getProgress(
+    String courseId,
+  ) async {
     final db = await database;
+
     final result = await db.query(
       progressTable,
       where: 'courseId = ?',
       whereArgs: [courseId],
+      limit: 1,
     );
+
     return result.isNotEmpty ? result.first : null;
   }
 
-  // Completed Lessons
-  static Future<void> markLessonCompleted(String lessonId, String courseId) async {
+  // الدروس المكتملة
+
+  static Future<void> markLessonCompleted(
+    String lessonId,
+    String courseId,
+  ) async {
     final db = await database;
+
     await db.insert(
       completedLessonsTable,
       {
@@ -139,23 +179,35 @@ class LocalStorageService {
     );
   }
 
-  static Future<List<String>> getCompletedLessons(String courseId) async {
+  static Future<List<String>> getCompletedLessons(
+    String courseId,
+  ) async {
     final db = await database;
+
     final results = await db.query(
       completedLessonsTable,
       where: 'courseId = ?',
       whereArgs: [courseId],
+      orderBy: 'completedAt DESC',
     );
-    return results.map((row) => row['lessonId'] as String).toList();
+
+    return results
+        .map((row) => row['lessonId'] as String)
+        .toList();
   }
 
-  static Future<bool> isLessonCompleted(String lessonId) async {
+  static Future<bool> isLessonCompleted(
+    String lessonId,
+  ) async {
     final db = await database;
+
     final result = await db.query(
       completedLessonsTable,
       where: 'lessonId = ?',
       whereArgs: [lessonId],
+      limit: 1,
     );
+
     return result.isNotEmpty;
   }
 }
